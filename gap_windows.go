@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"syscall"
 	"unsafe"
 
 	"github.com/go-ole/go-ole"
@@ -239,7 +240,27 @@ func getScanResultFromArgs(args *advertisement.BluetoothLEAdvertisementReceivedE
 			})
 		}
 	}
-
+	var serviceUUIDs []UUID
+	if winAdv, err := args.GetAdvertisement(); err == nil && winAdv != nil {
+		vector, _ := winAdv.GetServiceUuids()
+		size, _ := vector.GetSize()
+		for i := uint32(0); i < size; i++ {
+			var outGuid syscall.GUID
+			hr, _, _ := syscall.SyscallN(
+				vector.VTable().GetAt,
+				uintptr(unsafe.Pointer(vector)),
+				uintptr(i),
+				uintptr(unsafe.Pointer(&outGuid)),
+			)
+			if hr != 0 {
+				println("failed to get service UUID")
+				continue
+			}
+			// Convert to UUID if needed
+			uuid := New16BitUUID(uint16(outGuid.Data1))
+			serviceUUIDs = append(serviceUUIDs, uuid)
+		}
+	}
 	// Note: the IsRandom bit is never set.
 	advertisement, _ := args.GetAdvertisement()
 	localName, _ := advertisement.GetLocalName()
@@ -247,6 +268,7 @@ func getScanResultFromArgs(args *advertisement.BluetoothLEAdvertisementReceivedE
 		AdvertisementFields{
 			LocalName:        localName,
 			ManufacturerData: manufacturerData,
+			ServiceUUIDs:     serviceUUIDs,
 		},
 	}
 
